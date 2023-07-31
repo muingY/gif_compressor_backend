@@ -789,6 +789,7 @@ dependencies = [
  "actix-web",
  "chrono",
  "futures-util",
+ "gif",
  "image",
  "mime",
  "serde_json",
