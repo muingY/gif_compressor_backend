@@ -7,7 +7,7 @@ pub async fn check_session(app_state: web::Data<AppState>, req: HttpRequest) -> 
 
     let check_session: String;
     match req.cookie("session") {
-        Some(cookie) => { check_session = cookie.to_string(); },
+        Some(cookie) => { check_session = cookie.value().to_string() },
         None => {
             return HttpResponse::Unauthorized().finish();
         }
