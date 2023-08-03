@@ -13,9 +13,12 @@ use crate::state::AppState;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    if !Path::new("../gifs").exists() {
-        fs::create_dir("../gifs").await?;
+    if Path::new("./gifs").exists() {
+        fs::remove_dir_all("./gifs").await
+            .expect("Error: Initialize error. ./gifs dir remove fail.");
     }
+    fs::create_dir("./gifs")
+        .await.expect("Error: Initialize error. ./gifs dir create fail.");
 
     let app_state = web::Data::new(AppState {
         sessions: Mutex::new(HashMap::new()),

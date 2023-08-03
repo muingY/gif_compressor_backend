@@ -7,7 +7,8 @@ use tokio::io::AsyncReadExt;
 use crate::state::AppState;
 
 pub async fn compress_result_download(app_state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
-    let sessions = app_state.sessions.lock().unwrap();
+    let sessions = app_state.sessions.lock()
+        .expect("Error: Server state session lock fail.");
 
     let session: String;
     match req.cookie("session") {
@@ -60,10 +61,6 @@ pub async fn compress_result_download(app_state: web::Data<AppState>, req: HttpR
                 .unix_permissions(0o755);
 
             for path in compressed_files {
-                // let file_name = path.file_name().unwrap();
-                // zip.start_file(file_name.to_string_lossy(), options).unwrap();
-                // let mut file = File::open(&path).unwrap();
-                // file.copy_into(&mut zip).await.unwrap();
                 let file_name = path.file_name().unwrap();
                 zip.start_file(file_name.to_string_lossy(), options).unwrap();
                 let mut file = tokio::fs::File::open(&path).await.unwrap();

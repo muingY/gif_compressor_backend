@@ -3,7 +3,8 @@ use serde_json::json;
 use crate::state::AppState;
 
 pub async fn check_session(app_state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
-    let sessions = app_state.sessions.lock().unwrap();
+    let sessions = app_state.sessions.lock()
+        .expect("Error: Server state session lock fail.");
 
     let check_session: String;
     match req.cookie("session") {
@@ -14,6 +15,8 @@ pub async fn check_session(app_state: web::Data<AppState>, req: HttpRequest) -> 
     }
 
     if sessions.contains_key(check_session.as_str()) {
+        // ...
+
         return HttpResponse::Ok()
             .json(json!({
                 "session_exist": true,

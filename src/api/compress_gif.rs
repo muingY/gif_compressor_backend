@@ -3,91 +3,50 @@ use std::path::Path;
 use actix_multipart::Multipart;
 use actix_web::{HttpRequest, HttpResponse, Responder, web};
 use actix_web::cookie::Cookie;
-use actix_web::dev::ResourcePath;
-use actix_web::http::header::CONTENT_LENGTH;
-use futures_util::TryStreamExt;
 use gif::{Encoder, Frame, Repeat};
 use image::codecs::gif::GifDecoder;
 use image::{AnimationDecoder, ImageDecoder};
 use image::imageops::FilterType;
-use mime::Mime;
 use serde_json::json;
-use tokio::fs;
-use tokio::io::AsyncWriteExt;
+use crate::component::{payload_save, PayloadFileFailType, PayloadSaveErrType};
 use crate::state::AppState;
 
-pub async fn compress_gif(app_state: web::Data<AppState>, mut payload: Multipart, req: HttpRequest) -> impl Responder {
-    // File upload
-    let max_file_size: usize = 10000_000; // kb
-    let max_file_count = 10;
-    let legal_filetype = mime::IMAGE_GIF;
-
-    let content_length: usize = match req.headers().get(CONTENT_LENGTH) {
-        Some(header_value) => header_value.to_str().unwrap_or("0").parse().unwrap(),
-        None => "0".parse().unwrap()
-    };
-    if max_file_size < content_length {
-        return HttpResponse::BadRequest().json(json!({
-            "error": "File size limit exceeded.",
-            "errno": 1
-        }));
-    }
-
+pub async fn compress_gif(app_state: web::Data<AppState>, payload: Multipart, req: HttpRequest) -> impl Responder {
     let session_id = app_state.new_session();
-    let mut success_raw_file_path_list: Vec<String> = Vec::with_capacity(max_file_count);
-    let mut fail_file_list: Vec<String> = Vec::new();
-    let path = format!("./gifs/{}", session_id);
+    let save_path = format!("./gifs/{}", session_id);
 
-    if !Path::new(&*path.path()).exists() {
-        fs::create_dir(&*path).await.unwrap();
-    }
+    let mut success_raw_file_path_list: Vec<String> = Vec::new();
+    let mut fail_file_list: Vec<(String, PayloadFileFailType)> = Vec::new();
+    match payload_save(
+        payload,
+        req,
+        save_path.clone(),
+        vec![mime::IMAGE_GIF],
+        200000_000,
+        10
+    ).await {
+        Ok((success_file_paths, fail_files)) => {
+            success_raw_file_path_list = success_file_paths;
+            fail_file_list = fail_files;
+        },
+        Err(error_type) => {
+            match error_type {
+                PayloadSaveErrType::SizeLimitExceed | PayloadSaveErrType::FileNotAttached=> {
+                    return HttpResponse::BadRequest()
+                        .json(json!({
+                            "error": error_type as i32
+                        }))
+                }
+                PayloadSaveErrType::FileSystemFail | PayloadSaveErrType::ServerErr => {
 
-    let mut current_count: usize = 0;
-
-    loop {
-        if current_count >= max_file_count {
-            break;
-        }
-        if let Ok(Some(mut field)) = payload.try_next().await {
-            let filetype: Option<&Mime> = field.content_type();
-            if filetype.is_none() {
-                continue;
+                }
             }
-            if legal_filetype != *filetype.unwrap() {
-                fail_file_list.push(field.content_disposition().get_filename().unwrap().to_string());
-                continue;
-            }
-
-            let destination: String = format!(
-                "{}/{}",
-                path,
-                field.content_disposition().get_filename().unwrap()
-            );
-
-            let mut saved_file: fs::File = fs::File::create(&destination).await.unwrap();
-            while let Ok(Some(chunk)) = field.try_next().await {
-                let _ = saved_file.write_all(&chunk).await.unwrap();
-            }
-            success_raw_file_path_list.push(destination);
-        } else {
-            break;
-        }
-        current_count += 1;
+        },
     }
-
-    if current_count == 0 {
-        if Path::new(&*path.path()).exists() {
-            fs::remove_dir_all(&*path).await.unwrap();
-        }
-        return HttpResponse::BadRequest().json(json!({
-            "error": "File not attached.",
-            "errno": 2
-        }));
-    }
-
-    let mut compress_success_count: u8 = 0;
 
     // Compress
+    let mut compress_success_count: u8 = 0;
+
     for raw_file_path in success_raw_file_path_list {
         let file_in = File::open(raw_file_path.clone()).unwrap();
         let decoder = GifDecoder::new(file_in).unwrap();
@@ -105,7 +64,7 @@ pub async fn compress_gif(app_state: web::Data<AppState>, mut payload: Multipart
         }
 
         let file_name = Path::new(&raw_file_path).file_stem().unwrap().to_str().unwrap();
-        let compressed_gif_path = format!("{}/{}-{}.gif", &path, file_name, "compressed");
+        let compressed_gif_path = format!("{}/{}-{}.gif", &save_path, file_name, "compressed");
         let file_out = File::create(&compressed_gif_path).unwrap();
 
         let color_map = &[0u8, 0, 0, 255, 255, 255]; // Black and white
@@ -127,6 +86,6 @@ pub async fn compress_gif(app_state: web::Data<AppState>, mut payload: Multipart
         .cookie(Cookie::build("session", session_id).finish())
         .json(json!({
             "success": compress_success_count,
-            "fail_list": fail_file_list
+            "fail_list": fail_file_list.len()
         }))
 }
