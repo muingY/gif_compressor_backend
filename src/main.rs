@@ -1,5 +1,6 @@
 mod state;
 mod api;
+mod component;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -7,6 +8,7 @@ use std::sync::{Mutex};
 use actix_web::{web, App, HttpServer};
 use tokio::fs;
 use crate::api::{check_session, compress_gif, compress_result_download};
+use crate::component::session_cleanup_task;
 use crate::state::AppState;
 
 #[actix_web::main]
@@ -18,6 +20,8 @@ async fn main() -> std::io::Result<()> {
     let app_state = web::Data::new(AppState {
         sessions: Mutex::new(HashMap::new()),
     });
+
+    tokio::spawn(session_cleanup_task(app_state.clone()));
 
     HttpServer::new(move || {
         App::new()
