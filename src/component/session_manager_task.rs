@@ -7,7 +7,7 @@ use tokio::{time};
 use crate::state::AppState;
 
 pub async fn session_cleanup_task(app_state: web::Data<AppState>) {
-    let interval = time::interval(Duration::from_secs(60 * 5)); // 5 min
+    let interval = time::interval(Duration::from_secs(10)); // 5 min
 
     tokio::pin!(interval);
 
@@ -16,23 +16,22 @@ pub async fn session_cleanup_task(app_state: web::Data<AppState>) {
 
         let mut sessions = app_state.sessions.lock().unwrap();
         let now = Utc::now();
-
-        let mut need_cleanup: bool = false;
+        let mut to_remove: Vec<String> = Vec::new();
 
         for session in sessions.iter() {
-            if (now - *session.1).num_seconds() > (60 * 60 * 2) {
+            if (now - *session.1).num_seconds() > (30) {
                 let path = format!("./gifs/{}", session.0);
 
                 if Path::new(&*path.path()).exists() {
                     std::fs::remove_dir_all(&*path).unwrap();
                 }
 
-                need_cleanup = true;
+                to_remove.push(session.0.to_string());
             }
         }
 
-        if need_cleanup {
-            sessions.retain(|_, &mut v| (now - v).num_seconds() < (60 * 60 * 2));
+        for remove_session in to_remove {
+            sessions.remove(remove_session.as_str());
         }
     }
 }
