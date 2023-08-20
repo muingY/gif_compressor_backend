@@ -13,8 +13,8 @@ use crate::component::payload_save::PayloadSaveErrType::{FileNotAttached, FileSy
 pub enum PayloadSaveErrType {
     SizeLimitExceed = 0,
     FileNotAttached = 1,
-    FileSystemFail = 3,
-    ServerErr = 4,
+    FileSystemFail = 2,
+    ServerErr = 3,
 }
 
 pub enum PayloadFileFailType {
