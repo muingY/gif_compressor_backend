@@ -45,7 +45,7 @@ pub async fn compress_gif(app_state: web::Data<AppState>, payload: Multipart, re
 
     // Compress
     let mut compressed_files: Vec<(String, String)> = vec!();
-    let mut compress_fail_file_list: Vec<(String, CompressErrType)> = vec!();
+    let mut compress_fail_files: Vec<(String, CompressErrType)> = vec!();
 
     for raw_file_path in success_raw_file_paths {
         match compress(
@@ -57,7 +57,7 @@ pub async fn compress_gif(app_state: web::Data<AppState>, payload: Multipart, re
                 compressed_files.push((raw_file_path, compressed_file_path));
             }
             Err(err) => {
-                compress_fail_file_list.push((raw_file_path.to_string(), err));
+                compress_fail_files.push((raw_file_path.to_string(), err));
             }
         }
     }
@@ -68,19 +68,57 @@ pub async fn compress_gif(app_state: web::Data<AppState>, payload: Multipart, re
             }));
     }
 
-    // TODO: Write compress result analysis in json.
+    let fails_to_json = |upload_fail_files: Vec<(String, PayloadFileFailType)>, compress_fail_files: Vec<(String, CompressErrType)>| {
+        let mut json_array: Vec<_> = upload_fail_files.iter().map(|(filename, error_type)| {
+            json!({
+                "filename": filename,
+                "error-type": 0,
+                "error": error_type as *const _ as i32,
+            })
+        }).collect();
+        let mut json_array2: Vec<_> = compress_fail_files.iter().map(|(filename, error_type)| {
+            json!({
+                "filename": filename,
+                "error-type": 1,
+                "error": error_type as *const _ as i32,
+            })
+        }).collect();
+
+        json_array.append(&mut json_array2);
+        json_array
+    };
+
+    // Compress result analysis
     let mut compress_result: Vec<(String, u64, u64, f32)> = vec!();
     for (raw_file, compressed_file) in compressed_files.clone() {
-        let raw_size = fs::metadata(raw_file.clone()).unwrap().len();
-        let compressed_size = fs::metadata(compressed_file).unwrap().len();
+        let raw_size = match fs::metadata(raw_file.clone()) {
+            Ok(metadata) => { metadata.len() }
+            Err(_) => { continue; }
+        };
+        let compressed_size = match fs::metadata(compressed_file) {
+            Ok(metadata) => { metadata.len() }
+            Err(_) => { continue; }
+        };
         let compress_rate = (1.0 - (compressed_size.clone() as f32 / raw_size.clone() as f32)) * 100.0;
+
         compress_result.push((
-            path::Path::new(raw_file.as_str()).file_name().unwrap().to_str().unwrap().to_string(),
+            match path::Path::new(raw_file.as_str()).file_name() {
+                None => { continue; }
+                Some(filename) => {
+                    match filename.to_str() {
+                        None => { continue; }
+                        Some(filename_string) => {
+                            filename_string.to_string()
+                        }
+                    }
+                }
+            },
             raw_size,
             compressed_size,
             compress_rate
             ));
     }
+
     let compress_result_to_json = |compress_result: Vec<(String, u64, u64, f32)>| {
         let json_array: Vec<_> = compress_result.iter().map(|(filename, raw_size, compressed_size, compress_rate)| {
             json!({
@@ -94,13 +132,12 @@ pub async fn compress_gif(app_state: web::Data<AppState>, payload: Multipart, re
     };
 
     // Result
-    // TODO: Add compress result analysis data to response.
     HttpResponse::Ok()
         .cookie(Cookie::build("session", session_id).finish())
         .json(json!({
             "success": compressed_files.len(),
             "success_detail": compress_result_to_json(compress_result),
-            "fail": upload_fail_files.len()
-            // "fail_detail": compress_fail_file_list,
+            "fail": upload_fail_files.len(),
+            "fail_detail": fails_to_json(upload_fail_files, compress_fail_files),
         }))
 }
